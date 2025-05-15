@@ -23,10 +23,10 @@ def inserir_sqlserver():
     # Conexão SQL Server - HOMOLOGACAO
     SQLSERVER_CONN_STR = (
         "DRIVER={ODBC Driver 17 for SQL Server};"
-        "SERVER=kpm.sql.headcargo.com.br,9322;"
-        "DATABASE=HeadCARGO_KPM_HOMOLOGACAO;"
-        "UID=hc_kpm_ti;"
-        "PWD=" + os.getenv("SQLSERVER_PASSWORD")
+        f"SERVER={os.getenv('SQLSERVER_HOST')};"
+        f"DATABASE={os.getenv('SQLSERVER_DATABASE')};"
+        f"UID={os.getenv('SQLSERVER_USER')};"
+        f"PWD={os.getenv('SQLSERVER_PASSWORD')};"
     )
     conn_sql = pyodbc.connect(SQLSERVER_CONN_STR)
     cursor_sql = conn_sql.cursor()
