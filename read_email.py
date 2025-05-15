@@ -12,23 +12,25 @@ from dotenv import load_dotenv
 # Carregar .env
 load_dotenv()
 
-# Conexoes
+# Conexão SQL Server
 SQLSERVER_CONN_STR = (
     "DRIVER={ODBC Driver 17 for SQL Server};"
-    "SERVER=kpm.sql.headcargo.com.br,9322;"
-    "DATABASE=HeadCARGO_KPM_HOMOLOGACAO;"
-    "UID=hc_kpm_ti;"
-    "PWD=" + os.getenv("SQLSERVER_PASSWORD")
+    f"SERVER={os.getenv('SQLSERVER_HOST')};"
+    f"DATABASE={os.getenv('SQLSERVER_DATABASE')};"
+    f"UID={os.getenv('SQLSERVER_USER')};"
+    f"PWD={os.getenv('SQLSERVER_PASSWORD')};"
 )
 
+# Conexão PostgreSQL
 POSTGRES_CONN = psycopg2.connect(
-    host="89.117.17.6",
-    port=5432,
-    database="kpm_freehand",
-    user="kpm",
-    password="@Kpm<102030>"
+    host=os.getenv("POSTGRES_HOST"),
+    port=os.getenv("POSTGRES_PORT"),
+    database=os.getenv("POSTGRES_DB"),
+    user=os.getenv("POSTGRES_USER"),
+    password=os.getenv("POSTGRES_PASSWORD")
 )
 cursor_pg = POSTGRES_CONN.cursor()
+
 
 # Mapas fixos
 operation_map = {"impo": 2, "expo": 1}
@@ -50,38 +52,44 @@ def mapear(valor, mapa):
 def buscar_id_sqlserver(nome, tipo):
     conn_sql = pyodbc.connect(SQLSERVER_CONN_STR)
     cursor_sql = conn_sql.cursor()
+    try:
+        nome_limpo = nome.strip().upper() + '%'
 
-    if tipo == "origin" or tipo == "destination":
-        query = """
-        SELECT TOP 1 IdOrigem_Destino FROM cad_Origem_Destino
-        WHERE UPPER(LTRIM(RTRIM(Nome))) LIKE ? AND Ativo = 1 AND Tipo = 1
-        ORDER BY IdOrigem_Destino
-        """
+        if tipo in ("origin", "destination"):
+            query = """
+            SELECT TOP 1 IdOrigem_Destino
+            FROM cad_Origem_Destino
+            WHERE Nome LIKE ? AND Ativo = 1 AND Tipo = 1
+            ORDER BY IdOrigem_Destino
+            """
 
-    elif tipo == "cliente":
-        query = """
-        SELECT TOP 1 p.IdPessoa
-        FROM cad_Pessoa p
-        INNER JOIN cad_Cliente c ON c.IdPessoa = p.IdPessoa
-        WHERE p.Nome COLLATE Latin1_General_CI_AI LIKE ?
-        AND p.Ativo = 1
-        ORDER BY p.IdPessoa DESC
-        """
+        elif tipo == "cliente":
+            query = """
+            SELECT TOP 1 p.IdPessoa
+            FROM cad_Pessoa p
+            INNER JOIN cad_Cliente c ON c.IdPessoa = p.IdPessoa
+            WHERE p.Nome COLLATE Latin1_General_CI_AI LIKE ?
+              AND p.Ativo = 1
+            ORDER BY p.IdPessoa DESC
+            """
 
-    elif tipo == "shipowner":
-        query = """
-        SELECT TOP 1 p.IdPessoa
-        FROM cad_Pessoa p
-        INNER JOIN cad_Companhia_Transporte c on c.IdPessoa = p.IdPessoa
-        WHERE UPPER(LTRIM(RTRIM(p.Nome))) LIKE ? AND p.Ativo = 1
-        """
-    else:
-        return None
+        elif tipo == "shipowner":
+            query = """
+            SELECT TOP 1 p.IdPessoa
+            FROM cad_Pessoa p
+            INNER JOIN cad_Companhia_Transporte c ON c.IdPessoa = p.IdPessoa
+            WHERE p.Nome LIKE ?
+              AND p.Ativo = 1
+            """
+        else:
+            return None
 
-    cursor_sql.execute(query, f"{nome.strip().upper()}%")
-    result = cursor_sql.fetchone()
-    conn_sql.close()
-    return result[0] if result else None
+        cursor_sql.execute(query, [nome_limpo])
+        result = cursor_sql.fetchone()
+        return result[0] if result else None
+    finally:
+        conn_sql.close()
+
 
 def processar_emails() -> list[dict]:
     dados_processados = []
