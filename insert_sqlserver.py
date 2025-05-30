@@ -10,31 +10,30 @@ def inserir_sqlserver():
     # Carregar variáveis do .env
     load_dotenv()
 
-     # Conexão PostgreSQL
-    POSTGRES_CONN = psycopg2.connect(
+    # Conexão PostgreSQL
+    with psycopg2.connect(
         host=os.getenv("POSTGRES_HOST"),
         port=os.getenv("POSTGRES_PORT"),
         database=os.getenv("POSTGRES_DB"),
         user=os.getenv("POSTGRES_USER"),
         password=os.getenv("POSTGRES_PASSWORD")
-    )
-    cursor_pg = POSTGRES_CONN.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    ) as POSTGRES_CONN:
+        cursor_pg = POSTGRES_CONN.cursor(cursor_factory=psycopg2.extras.DictCursor)
 
-    # Conexão SQL Server - HOMOLOGACAO
-    SQLSERVER_CONN_STR = (
-        "DRIVER={ODBC Driver 17 for SQL Server};"
-        f"SERVER={os.getenv('SQLSERVER_HOST')};"
-        f"DATABASE={os.getenv('SQLSERVER_DATABASE')};"
-        f"UID={os.getenv('SQLSERVER_USER')};"
-        f"PWD={os.getenv('SQLSERVER_PASSWORD')};"
-    )
-    conn_sql = pyodbc.connect(SQLSERVER_CONN_STR)
-    cursor_sql = conn_sql.cursor()
+        # Conexão SQL Server
+        SQLSERVER_CONN_STR = (
+            "DRIVER={ODBC Driver 17 for SQL Server};"
+            f"SERVER={os.getenv('SQLSERVER_HOST')};"
+            f"DATABASE={os.getenv('SQLSERVER_DATABASE')};"
+            f"UID={os.getenv('SQLSERVER_USER')};"
+            f"PWD={os.getenv('SQLSERVER_PASSWORD')};"
+        )
+        with pyodbc.connect(SQLSERVER_CONN_STR) as conn_sql:
+            cursor_sql = conn_sql.cursor()
 
-    # Buscar todos os registros não processados
-    cursor_pg.execute("SELECT * FROM freehand WHERE processed_hs = FALSE ORDER BY upload_date")
-    dados = cursor_pg.fetchall()
-    colunas = [desc[0] for desc in cursor_pg.description]
+            cursor_pg.execute("SELECT * FROM freehand WHERE processed_hs = FALSE ORDER BY upload_date")
+            dados = cursor_pg.fetchall()
+            colunas = [desc[0] for desc in cursor_pg.description]
 
     for row in dados:
         dados_dict = dict(zip(colunas, row))
@@ -185,7 +184,7 @@ def inserir_sqlserver():
 # Garantir que o valor seja numérico ou None
         try:
             temperatura = float(dados_dict.get("temperature")) if dados_dict.get("temperature") is not None else None
-        except:
+        except Exception:
             temperatura = None
 
         cursor_sql.execute("""
@@ -216,14 +215,6 @@ def inserir_sqlserver():
             UPDATE freehand SET processed_hs = TRUE WHERE id = %s
         """, (dados_dict["id"],))
         POSTGRES_CONN.commit()
-
         conn_sql.commit()
 
-        print(f"\n✅ Dados inseridos no SQL Server com sucesso! Processo: {numero_processo}")
-
-    # Fechar conexões após todos os inserts
-    cursor_pg.close()
-    POSTGRES_CONN.close()
-    cursor_sql.close()
-    conn_sql.close()
-    print("🔌 Conexão com bancos encerrada.")
+        print(f"\Dados inseridos no SQL Server com sucesso! Processo: {numero_processo}")

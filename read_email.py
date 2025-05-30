@@ -11,17 +11,6 @@ from dotenv import load_dotenv
 # Carregar .env
 load_dotenv()
 
-# Conexão PostgreSQL
-POSTGRES_CONN = psycopg2.connect(
-    host=os.getenv("POSTGRES_HOST"),
-    port=os.getenv("POSTGRES_PORT"),
-    database=os.getenv("POSTGRES_DB"),
-    user=os.getenv("POSTGRES_USER"),
-    password=os.getenv("POSTGRES_PASSWORD")
-)
-cursor_pg = POSTGRES_CONN.cursor()
-
-
 # Mapas fixos
 operation_map = {"impo": 2, "expo": 1}
 modality_map = {"air": 1, "sea": 2}
@@ -38,44 +27,6 @@ def mapear(valor, mapa):
     if not valor:
         return None
     return mapa.get(str(valor).strip().lower())
-
-
-def buscar_id_postgres(nome, tipo):
-    if not nome:
-        return None
-    nome_limpo = nome.strip().upper() + '%'
-
-    if tipo in ("origin", "destination"):
-        query = """
-            SELECT idorigem_destino
-            FROM origem_destino
-            WHERE TRIM(UPPER(nome)) LIKE %s
-            ORDER BY idorigem_destino
-            LIMIT 1
-        """
-    elif tipo in ("cliente", "shipper", "consignee"):
-        query = """
-            SELECT idpessoa
-            FROM cliente
-            WHERE TRIM(UPPER(nome)) LIKE %s
-            ORDER BY idpessoa DESC
-            LIMIT 1
-        """
-    elif tipo == "shipowner":
-        query = """
-            SELECT idcia
-            FROM cia
-            WHERE TRIM(UPPER(nome)) LIKE %s
-            ORDER BY idcia
-            LIMIT 1
-        """
-    else:
-        return None
-
-    cursor_pg.execute(query, (nome_limpo,))
-    result = cursor_pg.fetchone()
-    return result[0] if result else None
-
 
 def processar_emails() -> list[dict]:
     dados_processados = []
@@ -112,120 +63,144 @@ def processar_emails() -> list[dict]:
     emails = response.json().get("value", [])
     emails_com_anexo = [email for email in emails if email.get("hasAttachments", False)]
 
-    for email in emails_com_anexo:
-        attachments_url = f"https://graph.microsoft.com/v1.0/users/freehand.reefer@kpmlogistics.com/messages/{email['id']}/attachments"
-        attachments_response = requests.get(attachments_url, headers=headers)
+    with psycopg2.connect(
+        host=os.getenv("POSTGRES_HOST"),
+        port=os.getenv("POSTGRES_PORT"),
+        database=os.getenv("POSTGRES_DB"),
+        user=os.getenv("POSTGRES_USER"),
+        password=os.getenv("POSTGRES_PASSWORD")
+    ) as POSTGRES_CONN:
+        with POSTGRES_CONN.cursor() as cursor_pg:
 
-        if attachments_response.status_code != 200:
-            continue
+            def buscar_id_postgres(nome, tipo):
+                if not nome:
+                    return None
+                nome_limpo = nome.strip().upper() + '%'
 
-        for attachment in attachments_response.json().get("value", []):
-            if attachment["name"].lower().startswith('freehand') and attachment["name"].endswith(('.xlsx', '.xls')):
-                try:
-                    content_bytes = base64.b64decode(attachment["contentBytes"])
-                    excel_file = io.BytesIO(content_bytes)
-                    df = pd.read_excel(excel_file)
-                    registros = df.to_dict('records')
+                if tipo in ("origin", "destination"):
+                    query = """
+                        SELECT idorigem_destino
+                        FROM origem_destino
+                        WHERE TRIM(UPPER(nome)) LIKE %s
+                        ORDER BY idorigem_destino
+                        LIMIT 1
+                    """
+                elif tipo in ("cliente", "shipper", "consignee"):
+                    query = """
+                        SELECT idpessoa
+                        FROM cliente
+                        WHERE TRIM(UPPER(nome)) LIKE %s
+                        ORDER BY idpessoa DESC
+                        LIMIT 1
+                    """
+                elif tipo == "shipowner":
+                    query = """
+                        SELECT idcia
+                        FROM cia
+                        WHERE TRIM(UPPER(nome)) LIKE %s
+                        ORDER BY idcia
+                        LIMIT 1
+                    """
+                else:
+                    return None
 
-                    def limpar(texto):
-                        return str(texto).strip() if texto and str(texto).strip().lower() != "nan" else None
+                cursor_pg.execute(query, (nome_limpo,))
+                result = cursor_pg.fetchone()
+                return result[0] if result else None
 
-                    for registro in registros:
-                        operation_raw = registro.get("Operation")
-                        modality_raw = registro.get("Modality")
-                        origin_raw = registro.get("Origin")
-                        destination_raw = registro.get("Destination")
-                        shipowner_raw = registro.get("Shipowner")
-                        client_raw = registro.get("Client")
-                        shipper_raw = registro.get("Shipper")
-                        consignee_raw = registro.get("Consignee")
-                        temperature_raw = registro.get("Temperature")
+            for email in emails_com_anexo:
+                attachments_url = f"https://graph.microsoft.com/v1.0/users/freehand.reefer@kpmlogistics.com/messages/{email['id']}/attachments"
+                attachments_response = requests.get(attachments_url, headers=headers)
 
-                        cargo_type_raw = registro.get("Cargo_Type")
-                        coin_raw = registro.get("Coin")
-                        incoterm_raw = registro.get("Incoterm")
-                        equip_raw = registro.get("Equip")
+                if attachments_response.status_code != 200:
+                    continue
 
-                        operation = limpar(operation_raw)
-                        modality = limpar(modality_raw)
-                        origin = limpar(origin_raw)
-                        destination = limpar(destination_raw)
-                        shipowner = limpar(shipowner_raw)
-                        client = limpar(client_raw)
-                        cargo_type = limpar(cargo_type_raw)
-                        coin = limpar(coin_raw)
-                        incoterm = limpar(incoterm_raw)
-                        equip = limpar(equip_raw)
-                        shipper = limpar(shipper_raw)
-                        consignee = limpar(consignee_raw)
+                for attachment in attachments_response.json().get("value", []):
+                    if attachment["name"].lower().startswith('freehand') and attachment["name"].endswith(('.xlsx', '.xls')):
                         try:
-                            temperature = float(str(temperature_raw).replace(",", ".").replace("−", "-").strip()) if temperature_raw else None
-                        except:
-                            temperature = None
+                            content_bytes = base64.b64decode(attachment["contentBytes"])
+                            excel_file = io.BytesIO(content_bytes)
+                            df = pd.read_excel(excel_file)
+                            registros = df.to_dict('records')
 
+                            def limpar(texto):
+                                return str(texto).strip() if texto and str(texto).strip().lower() != "nan" else None
 
-                        operation_id = mapear(operation, operation_map)
-                        modality_id = mapear(modality, modality_map)
-                        cargo_type_id = mapear(cargo_type, cargo_type_map)
-                        coin_id = mapear(coin, coin_map)
-                        incoterm_id = mapear(incoterm, incoterm_map)
-                        equip_id = mapear(equip, equip_map)
+                            for registro in registros:
+                                operation = limpar(registro.get("Operation"))
+                                modality = limpar(registro.get("Modality"))
+                                origin = limpar(registro.get("Origin"))
+                                destination = limpar(registro.get("Destination"))
+                                shipowner = limpar(registro.get("Shipowner"))
+                                client = limpar(registro.get("Client"))
+                                shipper = limpar(registro.get("Shipper"))
+                                consignee = limpar(registro.get("Consignee"))
+                                cargo_type = limpar(registro.get("Cargo_Type"))
+                                coin = limpar(registro.get("Coin"))
+                                incoterm = limpar(registro.get("Incoterm"))
+                                equip = limpar(registro.get("Equip"))
+                                temperature_raw = registro.get("Temperature")
 
-                        origin_id = buscar_id_postgres(origin, "origin")
-                        destination_id = buscar_id_postgres(destination, "destination")
-                        client_id = buscar_id_postgres(client, "cliente")
-                        shipowner_id = buscar_id_postgres(shipowner, "shipowner")
-                        shipper_id = buscar_id_postgres(shipper, "shipper")
-                        consignee_id = buscar_id_postgres(consignee, "consignee")
+                                try:
+                                    temperature = float(str(temperature_raw).replace(",", ".").replace("−", "-").strip()) if temperature_raw else None
+                                except Exception:
+                                    temperature = None
 
+                                operation_id = mapear(operation, operation_map)
+                                modality_id = mapear(modality, modality_map)
+                                cargo_type_id = mapear(cargo_type, cargo_type_map)
+                                coin_id = mapear(coin, coin_map)
+                                incoterm_id = mapear(incoterm, incoterm_map)
+                                equip_id = mapear(equip, equip_map)
 
-                        cursor_pg.execute("""
-                            INSERT INTO freehand (
-                            operation, operation_id, modality, modality_id, origin, origin_id, destination, destination_id,
-                            shipowner, shipowner_id, client, client_id, shipper, shipper_id, consignee, consignee_id,
-                            cargo_type, cargo_type_id, coin, coin_id, incoterm, incoterm_id, equip, equip_id,
-                            temperature, upload_date
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                                %s, %s)
+                                origin_id = buscar_id_postgres(origin, "origin")
+                                destination_id = buscar_id_postgres(destination, "destination")
+                                client_id = buscar_id_postgres(client, "cliente")
+                                shipowner_id = buscar_id_postgres(shipowner, "shipowner")
+                                shipper_id = buscar_id_postgres(shipper, "shipper")
+                                consignee_id = buscar_id_postgres(consignee, "consignee")
 
-                        """, (
-                            operation, operation_id, modality, modality_id,
-                            origin_raw, origin_id, destination_raw, destination_id,
-                            shipowner_raw, shipowner_id, client_raw, client_id,
-                            shipper_raw, shipper_id, consignee_raw, consignee_id,
-                            cargo_type, cargo_type_id, coin, coin_id,
-                            incoterm, incoterm_id, equip, equip_id, temperature, datetime.now()
-                        ))
+                                cursor_pg.execute("""
+                                    INSERT INTO freehand (
+                                        operation, operation_id, modality, modality_id, origin, origin_id, destination, destination_id,
+                                        shipowner, shipowner_id, client, client_id, shipper, shipper_id, consignee, consignee_id,
+                                        cargo_type, cargo_type_id, coin, coin_id, incoterm, incoterm_id, equip, equip_id,
+                                        temperature, upload_date
+                                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                                              %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                                              %s, %s)
+                                """, (
+                                    operation, operation_id, modality, modality_id,
+                                    origin, origin_id, destination, destination_id,
+                                    shipowner, shipowner_id, client, client_id,
+                                    shipper, shipper_id, consignee, consignee_id,
+                                    cargo_type, cargo_type_id, coin, coin_id,
+                                    incoterm, incoterm_id, equip, equip_id,
+                                    temperature, datetime.now()
+                                ))
 
-                        dados_processados.append({
-                            "operation_id": operation_id,
-                            "modality_id": modality_id,
-                            "origin_id": origin_id,
-                            "destination_id": destination_id,
-                            "shipowner_id": shipowner_id,
-                            "client_id": client_id,
-                            "cargo_type_id": cargo_type_id,
-                            "coin_id": coin_id,
-                            "incoterm_id": incoterm_id,
-                            "equip_id": equip_id,
-                            "shipper_id": shipper_id,
-                            "consignee_id": consignee_id,
-                            "temperature": temperature
+                                dados_processados.append({
+                                    "operation_id": operation_id,
+                                    "modality_id": modality_id,
+                                    "origin_id": origin_id,
+                                    "destination_id": destination_id,
+                                    "shipowner_id": shipowner_id,
+                                    "client_id": client_id,
+                                    "cargo_type_id": cargo_type_id,
+                                    "coin_id": coin_id,
+                                    "incoterm_id": incoterm_id,
+                                    "equip_id": equip_id,
+                                    "shipper_id": shipper_id,
+                                    "consignee_id": consignee_id,
+                                    "temperature": temperature
+                                })
 
-                        })
+                            POSTGRES_CONN.commit()
+                            print("✅ Dados inseridos no PostgreSQL com sucesso!")
 
-                    POSTGRES_CONN.commit()
-                    print("✅ Dados inseridos no PostgreSQL com sucesso!")
+                        except Exception as e:
+                            POSTGRES_CONN.rollback()
+                            print(f"❌ Erro ao processar Excel: {str(e)}")
 
-                except Exception as e:
-                    POSTGRES_CONN.rollback()
-                    print(f"❌ Erro ao processar Excel: {str(e)}")
-
-
-    # Fechar conexao
-    cursor_pg.close()
-    POSTGRES_CONN.close()
     print("🔌 Conexão com o PostgreSQL encerrada.")
     return dados_processados
-
