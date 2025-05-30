@@ -4,22 +4,12 @@ import pandas as pd
 import base64
 import io
 import psycopg2
-import pyodbc
 from datetime import datetime, timedelta
 import os
 from dotenv import load_dotenv
 
 # Carregar .env
 load_dotenv()
-
-# Conexão SQL Server
-SQLSERVER_CONN_STR = (
-    "DRIVER={ODBC Driver 17 for SQL Server};"
-    f"SERVER={os.getenv('SQLSERVER_HOST')};"
-    f"DATABASE={os.getenv('SQLSERVER_DATABASE')};"
-    f"UID={os.getenv('SQLSERVER_USER')};"
-    f"PWD={os.getenv('SQLSERVER_PASSWORD')};"
-)
 
 # Conexão PostgreSQL
 POSTGRES_CONN = psycopg2.connect(
@@ -49,46 +39,42 @@ def mapear(valor, mapa):
         return None
     return mapa.get(str(valor).strip().lower())
 
-def buscar_id_sqlserver(nome, tipo):
-    conn_sql = pyodbc.connect(SQLSERVER_CONN_STR)
-    cursor_sql = conn_sql.cursor()
-    try:
-        nome_limpo = nome.strip().upper() + '%'
 
-        if tipo in ("origin", "destination"):
-            query = """
-            SELECT TOP 1 IdOrigem_Destino
-            FROM cad_Origem_Destino
-            WHERE Nome LIKE ? AND Ativo = 1 AND Tipo = 1
-            ORDER BY IdOrigem_Destino
-            """
+def buscar_id_postgres(nome, tipo):
+    if not nome:
+        return None
+    nome_limpo = nome.strip().upper() + '%'
 
-        elif tipo == "cliente":
-            query = """
-            SELECT TOP 1 p.IdPessoa
-            FROM cad_Pessoa p
-            INNER JOIN cad_Cliente c ON c.IdPessoa = p.IdPessoa
-            WHERE p.Nome COLLATE Latin1_General_CI_AI LIKE ?
-              AND p.Ativo = 1
-            ORDER BY p.IdPessoa DESC
-            """
+    if tipo in ("origin", "destination"):
+        query = """
+            SELECT idorigem_destino
+            FROM origem_destino
+            WHERE TRIM(UPPER(nome)) LIKE %s
+            ORDER BY idorigem_destino
+            LIMIT 1
+        """
+    elif tipo in ("cliente", "shipper", "consignee"):
+        query = """
+            SELECT idpessoa
+            FROM cliente
+            WHERE TRIM(UPPER(nome)) LIKE %s
+            ORDER BY idpessoa DESC
+            LIMIT 1
+        """
+    elif tipo == "shipowner":
+        query = """
+            SELECT idcia
+            FROM cia
+            WHERE TRIM(UPPER(nome)) LIKE %s
+            ORDER BY idcia
+            LIMIT 1
+        """
+    else:
+        return None
 
-        elif tipo == "shipowner":
-            query = """
-            SELECT TOP 1 p.IdPessoa
-            FROM cad_Pessoa p
-            INNER JOIN cad_Companhia_Transporte c ON c.IdPessoa = p.IdPessoa
-            WHERE p.Nome LIKE ?
-              AND p.Ativo = 1
-            """
-        else:
-            return None
-
-        cursor_sql.execute(query, [nome_limpo])
-        result = cursor_sql.fetchone()
-        return result[0] if result else None
-    finally:
-        conn_sql.close()
+    cursor_pg.execute(query, (nome_limpo,))
+    result = cursor_pg.fetchone()
+    return result[0] if result else None
 
 
 def processar_emails() -> list[dict]:
@@ -185,12 +171,13 @@ def processar_emails() -> list[dict]:
                         incoterm_id = mapear(incoterm, incoterm_map)
                         equip_id = mapear(equip, equip_map)
 
-                        origin_id = buscar_id_sqlserver(origin, "origin")
-                        destination_id = buscar_id_sqlserver(destination, "destination")
-                        client_id = buscar_id_sqlserver(client, "cliente")
-                        shipowner_id = buscar_id_sqlserver(shipowner, "shipowner")
-                        shipper_id = buscar_id_sqlserver(shipper, "cliente")
-                        consignee_id = buscar_id_sqlserver(consignee, "cliente")
+                        origin_id = buscar_id_postgres(origin, "origin")
+                        destination_id = buscar_id_postgres(destination, "destination")
+                        client_id = buscar_id_postgres(client, "cliente")
+                        shipowner_id = buscar_id_postgres(shipowner, "shipowner")
+                        shipper_id = buscar_id_postgres(shipper, "shipper")
+                        consignee_id = buscar_id_postgres(consignee, "consignee")
+
 
                         cursor_pg.execute("""
                             INSERT INTO freehand (
