@@ -63,6 +63,9 @@ def processar_emails() -> list[dict]:
     emails = response.json().get("value", [])
     emails_com_anexo = [email for email in emails if email.get("hasAttachments", False)]
 
+    print(f"🔍 Total de e-mails encontrados: {len(emails)}")           # <-- AQUI
+    print(f"📎 E-mails com anexo: {len(emails_com_anexo)}")            # <-- AQUI
+
     with psycopg2.connect(
         host=os.getenv("POSTGRES_HOST"),
         port=os.getenv("POSTGRES_PORT"),
@@ -202,5 +205,12 @@ def processar_emails() -> list[dict]:
                             POSTGRES_CONN.rollback()
                             print(f"❌ Erro ao processar Excel: {str(e)}")
 
+
+
     print("🔌 Conexão com o PostgreSQL encerrada.")
+    print(f"📤 Retornando {len(dados_processados)} registros processados.")  # <-- AQUI (FIM)
     return dados_processados
+
+# CHAMADA PARA EXECUTAR A FUNÇÃO
+if __name__ == "__main__":
+    processar_emails()
