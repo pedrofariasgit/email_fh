@@ -77,13 +77,17 @@ def inserir_sqlserver():
 
 
         # Função auxiliar para gerar IDs conforme o padrão do ERP
-        def gerar_id(cursor_sql, tabela, campo):
-            cursor_sql.execute(f"""
-                DECLARE @Resultado BIGINT;
-                EXEC @Resultado = dbo.hsGerarCodigo @Table = '{tabela}', @FieldName = '{campo}';
-                SELECT @Resultado;
-            """)
-            return cursor_sql.fetchone()[0]
+        def gerar_id(cursor, tabela, campo):
+            try:
+                query = f"SELECT MAX({campo}) FROM {tabela}"
+                print(f"🛠️ Gerando ID com query: {query}")  # <-- Adiciona esse print aqui
+                cursor.execute(query)
+                row = cursor.fetchone()
+                return (row[0] or 0) + 1
+            except Exception as e:
+                print(f"❌ Erro ao gerar ID para {tabela}.{campo}: {e}")
+                raise
+
 
         # Geração segura dos IDs via hsGerarCodigo
         id_house = gerar_id(cursor_sql, 'mov_Logistica_House', 'IdLogistica_House')
@@ -96,6 +100,7 @@ def inserir_sqlserver():
 
 
         dados_registro = f'<Registro><Origem><Classe Nome="TLogisticaHouse"><PrimaryKey Nome="IdLogistica_House" Tipo="3">{id_house}</PrimaryKey></Classe></Origem></Registro>'
+
 
         # Inserts
         cursor_sql.execute("""
@@ -172,7 +177,7 @@ def inserir_sqlserver():
                 ) VALUES (?, ?, ?, ?)
             """, (id_equipamento, id_house, dados_dict['equip_id'], 1))
         else:
-            print(f"⏭️ Campo Equipamento em branco para o processo {dados_dict.get('numero_processo')}, pulando insert.")
+            print(f"Campo Equipamento em branco para o processo {dados_dict.get('numero_processo')}, pulando insert.")
 
 
         cursor_sql.execute("""
@@ -217,4 +222,7 @@ def inserir_sqlserver():
         POSTGRES_CONN.commit()
         conn_sql.commit()
 
-        print(f"\Dados inseridos no SQL Server com sucesso! Processo: {numero_processo}")
+        print(f"Dados inseridos no SQL Server com sucesso! Processo: {numero_processo}")
+    
+if __name__ == "__main__":
+    inserir_sqlserver()
