@@ -76,17 +76,31 @@ def inserir_sqlserver():
         numero_processo_m = f"{novo_num_m:06}/{ano_atual}"  # Ex: 000034/25
 
 
-        # Função auxiliar para gerar IDs conforme o padrão do ERP
         def gerar_id(cursor, tabela, campo):
             try:
-                query = f"SELECT MAX({campo}) FROM {tabela}"
-                print(f"🛠️ Gerando ID com query: {query}")  # <-- Adiciona esse print aqui
-                cursor.execute(query)
-                row = cursor.fetchone()
-                return (row[0] or 0) + 1
+                sql = f"""
+                DECLARE @ret INT;
+                EXEC @ret = hsGerarCodigo '{tabela}', '{campo}';
+                SELECT @ret AS id;
+                """
+                cursor.execute(sql)
+
+                # Avança até o result set do SELECT @ret
+                while True:
+                    try:
+                        row = cursor.fetchone()
+                        if row is not None:
+                            return row[0]
+                    except pyodbc.ProgrammingError:
+                        pass  # não é um SELECT ainda
+                    if not cursor.nextset():
+                        break
+
+                raise Exception(f"Nenhum resultado retornado por hsGerarCodigo para {tabela}.{campo}")
             except Exception as e:
-                print(f"❌ Erro ao gerar ID para {tabela}.{campo}: {e}")
+                print(f"Erro ao gerar ID para {tabela}.{campo}: {e}")
                 raise
+
 
 
         # Geração segura dos IDs via hsGerarCodigo
