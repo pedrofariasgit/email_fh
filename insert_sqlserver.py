@@ -41,6 +41,16 @@ def inserir_sqlserver():
         operation = dados_dict['operation'].lower()
         modality = dados_dict['modality'].lower()
 
+        # Buscar o IdVendedor_Responsavel na cad_Cliente com base no client_id (que é IdPessoa lá)
+        cursor_sql.execute("""
+            SELECT IdVendedor_Responsavel
+            FROM cad_Cliente
+            WHERE IdPessoa = ?
+        """, (dados_dict['client_id'],))
+        row = cursor_sql.fetchone()
+        id_vendedor = row[0] if row else None
+
+
         if modality == 'air' and operation == 'impo': prefixo, id_tarefa = 'KPMIA', 6
         elif modality == 'air' and operation == 'expo': prefixo, id_tarefa = 'KPMEA', 7
         elif modality == 'sea' and operation == 'impo': prefixo, id_tarefa = 'KPMIMP', 8
@@ -146,14 +156,14 @@ def inserir_sqlserver():
                 Atualizacao_Taxas_Comercial, Carga_Perigosa, Comissao_Coleta, Comissao_Entrega,
                 IdFuncionario_Criacao, Modalidade_Coleta, Modalidade_Entrega, Modalidade_Pagamento,
                 Percentual_Seguro, Seguro, Situacao_Recebimento, Situacao_Siscoserv, Tipo_Servico,
-                IdProjeto_Atividade 
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                IdProjeto_Atividade, IdVendedor 
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             id_house, id_master, dados_dict['client_id'], dados_dict['shipper_id'], dados_dict['consignee_id'], 1,
             numero_processo, 1, 0, 0, dados_dict['cargo_type_id'], 1, 0,
             datetime.now(), 1, 0, 0, 0, 1, dados_dict['incoterm_id'], 15,
             1, 0, 0, 0, 64698, 0, 0, 2,
-            0.00, 0, 0, 1, 4, id_projeto_atividade
+            0.00, 0, 0, 1, 4, id_projeto_atividade, id_vendedor
         ))
 
         cursor_sql.execute("""
